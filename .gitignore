@@ -1,0 +1,22 @@
+# Entornos
+.venv/
+__pycache__/
+*.py[cod]
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Experimentos
+wandb/
+
+# Configuración del editor
+.vscode/
+
+# Documentación local de estudio (no se publica)
+docs/
+
+# Enunciado y material de cátedra
+*.pdf
+
+# Sistema operativo
+.DS_Store
