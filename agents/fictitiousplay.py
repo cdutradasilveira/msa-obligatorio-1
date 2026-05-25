@@ -10,41 +10,51 @@ class FictitiousPlay(Agent):
         super().__init__(game=game, agent=agent)
         np.random.seed(seed=seed)
         
+        # count[ag]: conteos de acciones observadas de cada agente (la evidencia de las creencias).
+        # learned_policy[ag]: creencia = frecuencia empirica normalizada de cada agente.
         self.count: dict[AgentID, ndarray] = {}
-        #
-        # TODO: inicializar count con initial si no es None o, caso contrario, con valores random 
-        #
-
         self.learned_policy: dict[AgentID, ndarray] = {}
-        #
-        # TODO: inicializar learned_policy usando de count
-        # 
+        for ag in self.game.agents:
+            n = self.game.num_actions(ag)
+            if initial is None:
+                # Creencia inicial aleatoria: pesos fraccionarios validos que suman 1.
+                self.count[ag] = np.random.dirichlet(np.ones(n))
+            else:
+                self.count[ag] = initial[ag].copy()
+            self.learned_policy[ag] = self.count[ag] / np.sum(self.count[ag])
 
     def get_rewards(self) -> dict:
         g = self.game.clone()
         agents_actions = list(map(lambda agent: list(g.action_iter(agent)), g.agents))
         rewards: dict[tuple, float] = {}
-        #
-        # TODO: calcular los rewards de agente para cada acción conjunta 
-        # Ayuda: usar product(*agents_actions) de itertools para iterar sobre agents_actions
-        #s
+        # product(*agents_actions) genera TODAS las acciones conjuntas posibles.
+        for joint in product(*agents_actions):
+            actions = dict(zip(g.agents, joint))
+            g.reset()
+            g.step(actions)
+            # Reward que recibe ESTE agente bajo esa accion conjunta.
+            rewards[joint] = g.reward(self.agent)
         return rewards
     
     def get_utility(self):
         rewards = self.get_rewards()
         utility = np.zeros(self.game.num_actions(self.agent))
-        #
-        # TODO: calcular la utilidad (valor) de cada acción de agente. 
-        # Ayuda: iterar sobre rewards para cada acción de agente
-        #
+        my_idx = self.game.agents.index(self.agent)
+        for joint, r in rewards.items():
+            # Probabilidad de que los OTROS jueguen su parte de la accion conjunta,
+            # segun la creencia actual. Mi propia accion no se pondera (la estoy evaluando).
+            prob_others = 1.0
+            for idx, ag in enumerate(self.game.agents):
+                if ag == self.agent:
+                    continue
+                prob_others *= self.learned_policy[ag][joint[idx]]
+            # Acumulo el reward esperado en la casilla de MI accion dentro de esa conjunta.
+            utility[joint[my_idx]] += r * prob_others
         return utility
     
     def bestresponse(self):
-        a = None
-        #
-        # TODO: retornar la acción de mayor utilidad
-        #
-        return a
+        # Mejor respuesta = accion de mayor utilidad esperada contra la creencia actual.
+        return int(np.argmax(self.get_utility()))
      
     def update(self) -> None:
         actions = self.game.observe(self.agent)
