@@ -21,17 +21,29 @@ class RegretMatching(Agent):
         a = actions[self.agent]
         g = self.game.clone()
         u = np.zeros(g.num_actions(self.agent), dtype=float)
-        # 
-        # TODO: calcular regrets
-        #
-        r = None
+        # Utilidad contrafactual: que habria cobrado con cada accion alternativa a',
+        # manteniendo fijas las acciones reales de los demas.
+        for a_prime in g.action_iter(self.agent):
+            actions[self.agent] = a_prime
+            g.reset()
+            g.step(actions)
+            u[a_prime] = g.reward(self.agent)
+        # Regret de no haber jugado a' = utilidad de a' menos la que realmente obtuve (u[a]).
+        r = u - u[a]
         return r
     
     def regret_matching(self):
-        #
-        # TODO: calcular curr_policy y actualizar sum_policy
-        #
-        pass
+        # Solo cuentan los arrepentimientos positivos (acciones que "ojala hubiera jugado mas").
+        positive = np.maximum(self.cum_regrets, 0)
+        total = positive.sum()
+        if total > 0:
+            self.curr_policy = positive / total
+        else:
+            # Sin regret positivo: no hay nada que preferir, jugamos uniforme.
+            n = self.game.num_actions(self.agent)
+            self.curr_policy = np.full(n, 1 / n)
+        # Acumulamos para poder promediar la estrategia (lo que converge al NE).
+        self.sum_policy += self.curr_policy
 
     def update(self) -> None:
         actions = self.game.observe(self.agent)
