@@ -37,8 +37,8 @@ class IQLAgent(Agent):
         self.last_action = None
 
     def _key(self, obs):
-        # Clave hasheable del estado. Observacion None (juegos one-shot) -> clave fija.
-        if obs is None:
+        # one-shot: la obs es la jugada (o None), no un estado -> uso una clave fija
+        if obs is None or isinstance(obs, dict):
             return None
         return tuple(np.asarray(obs).flatten().tolist())
 
