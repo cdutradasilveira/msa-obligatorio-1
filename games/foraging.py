@@ -31,6 +31,7 @@ class Foraging(SimultaneousGame):
         self.current_step = 0
         self._done = False
         self._truncated = False
+        self._last_actions = None
 
     @staticmethod
     def _build_per_agent_spaces(space_obj, agents: list[str]) -> dict:
@@ -57,6 +58,7 @@ class Foraging(SimultaneousGame):
         self.infos = {agent: {} for agent in self.agents}
         self._done = False
         self._truncated = False
+        self._last_actions = None
 
     def reset(self, seed: int | None = None, options: dict | None = None):
         if seed is None:
@@ -71,6 +73,7 @@ class Foraging(SimultaneousGame):
         return self.observations, self.infos
 
     def step(self, actions: ActionDict) -> tuple[dict, dict, dict, dict, dict]:
+        self._last_actions = dict(actions)  # me la guardo para observe_action
         joint_action = tuple(actions[agent] for agent in self.agents)
         obs, rewards, done, truncated, info = self.env.step(action=joint_action)
 
@@ -87,6 +90,9 @@ class Foraging(SimultaneousGame):
         self._truncated = bool(truncated)
 
         return self.observations, self.rewards, self.terminations, self.truncations, self.infos
+
+    def observe_action(self, agent):
+        return self._last_actions
 
     def render(self):
         self.env.render()

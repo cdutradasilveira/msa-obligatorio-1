@@ -25,7 +25,11 @@ class SimultaneousGame(ParallelEnv):
         
     def observe(self, agent: AgentID):
         return self.observations[agent]
-    
+
+    def observe_action(self, agent: AgentID):
+        # la jugada de la ronda anterior; en one-shot ya viene en la observacion, foraging lo pisa
+        return self.observations[agent]
+
     def reward(self, agent: AgentID):
         return self.rewards[agent]
     
