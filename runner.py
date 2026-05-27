@@ -43,8 +43,9 @@ def play_episode(game, agents, learn=True):
     return cum
 
 
-def run(game, agents, episodes, learn=True):
+def run(game, agents, episodes, learn=True, callback=None):
     # devuelve (episodes, n_agentes) con el reward por episodio/ronda, en el orden de game.agents
+    # callback(e): opcional, se llama tras cada episodio/ronda (util para tomar metricas en el tiempo)
     _set_learn(agents, learn)
     order = list(game.agents)
     hist = np.zeros((episodes, len(order)))
@@ -52,6 +53,8 @@ def run(game, agents, episodes, learn=True):
         for e in range(episodes):
             cum = play_episode(game, agents, learn=learn)
             hist[e] = [cum[ag] for ag in order]
+            if callback is not None:
+                callback(e)
     else:
         # one-shot: reseteo una sola vez y juego las rondas de corrido (asi FP/RM ven la jugada previa)
         game.reset()
@@ -63,6 +66,8 @@ def run(game, agents, episodes, learn=True):
                 hist[e, j] = game.reward(ag)
                 if _learns_externally(agents[ag]):
                     agents[ag].update()
+            if callback is not None:
+                callback(e)
     return hist
 
 

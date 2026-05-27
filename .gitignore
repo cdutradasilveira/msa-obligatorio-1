@@ -8,6 +8,7 @@ __pycache__/
 
 # Experimentos
 wandb/
+figures/
 
 # Configuración del editor
 .vscode/
