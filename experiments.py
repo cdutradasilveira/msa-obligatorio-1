@@ -1,4 +1,6 @@
 import os
+import time
+import json
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # sin ventana: guardamos las figuras a archivo
@@ -8,9 +10,11 @@ import runner
 from games.mp import MP
 from games.rps import RPS
 from games.bos import BoS
+from games.chicken import Chicken
 from games.cournot import Cournot
 from games.threeplayers import ThreePlayers
 from games.foraging import Foraging
+from games.blotto import Blotto
 from agents.fictitiousplay import FictitiousPlay
 from agents.regretmatching import RegretMatching
 from agents.iql_agent import IQLAgent, IQLAgentConfig
@@ -20,7 +24,7 @@ from agents.random_agent import RandomAgent
 FIG = os.path.join(os.path.dirname(__file__), "figures")
 os.makedirs(FIG, exist_ok=True)
 
-# estilo limpio para todas las figuras (look tipo libro)
+# estilo limpio para todas las figuras
 for _style in ("seaborn-v0_8-whitegrid", "seaborn-whitegrid"):
     try:
         plt.style.use(_style); break
@@ -34,7 +38,7 @@ plt.rcParams.update({
 
 
 def _simplex_point(policy, agent_idx):
-    # agente 0 en el triangulo inferior-izq; agente 1 espejado en el superior-der (estilo libro)
+    # agente 0 en el triangulo inferior-izq; agente 1 espejado en el superior-der
     rock, paper = float(policy[0]), float(policy[1])
     return (rock, paper) if agent_idx == 0 else (1.0 - rock, 1.0 - paper)
 
@@ -68,6 +72,7 @@ def exp_convergence_zero_sum(total=20000, snap=200):
             "FP vs RM":   lambda g: {g.agents[0]: FictitiousPlay(game=g, agent=g.agents[0], seed=1),
                                      g.agents[1]: RegretMatching(game=g, agent=g.agents[1], seed=2)},
             "IQL vs IQL": lambda g: _iql(g, max_t=total // 2),
+            "JAL-AM vs JAL-AM": lambda g: _jalam(g, max_t=total // 2),
         }
         for label, build in matchups.items():
             g = Game()
@@ -298,9 +303,138 @@ def exp_foraging_multirun(cfg="Foraging-5x5-2p-1f-coop-v3", algos=("IQL", "JAL-A
     print("guardado:", path)
 
 
+# ============ F. Blotto y explotación de un rival fijo (obligatorio) ============
+def exp_blotto(total=20000):
+    # suma cero simetrico: en self-play el reward promedio tiende a 0; contra Random deberian ganar
+    matchups = {
+        "FP vs FP": lambda g: _fp(g),
+        "RM vs RM": lambda g: _rm(g),
+        "FP vs Random": lambda g: {g.agents[0]: FictitiousPlay(game=g, agent=g.agents[0], seed=1),
+                                   g.agents[1]: RandomAgent(game=g, agent=g.agents[1])},
+        "RM vs Random": lambda g: {g.agents[0]: RegretMatching(game=g, agent=g.agents[0], seed=1),
+                                   g.agents[1]: RandomAgent(game=g, agent=g.agents[1])},
+    }
+    plt.figure(figsize=(7, 4))
+    for label, build in matchups.items():
+        g = Blotto(S=6, N=3); agents = build(g)
+        h = runner.run(g, agents, total)
+        running = np.cumsum(h[:, 0]) / np.arange(1, total + 1)
+        plt.plot(running, label=label)
+    plt.axhline(0, color="k", lw=0.6, alpha=0.5)
+    plt.xlabel("rondas"); plt.ylabel("recompensa promedio acumulada (agente 0)")
+    plt.title("Blotto (6 soldados, 3 frentes)"); plt.legend(); plt.tight_layout()
+    path = os.path.join(FIG, "A_blotto.png")
+    plt.savefig(path, dpi=120); plt.close()
+    print("guardado:", path)
+
+
+def exp_exploit_random(total=10000):
+    # un rival fijo sesgado [0.8,0.2] en MP: los que aprenden deben explotarlo (reward -> +0.6)
+    plt.figure(figsize=(7, 4))
+    for label in ("FP", "RM", "IQL"):
+        g = MP()
+        if label == "FP":
+            learner = FictitiousPlay(game=g, agent=g.agents[0], seed=1)
+        elif label == "RM":
+            learner = RegretMatching(game=g, agent=g.agents[0], seed=1)
+        else:
+            learner = IQLAgent(g, g.agents[0], IQLAgentConfig(max_t=total // 2, seed=1))
+        agents = {g.agents[0]: learner,
+                  g.agents[1]: RandomAgent(game=g, agent=g.agents[1], initial=np.array([0.8, 0.2]))}
+        h = runner.run(g, agents, total)
+        running = np.cumsum(h[:, 0]) / np.arange(1, total + 1)
+        plt.plot(running, label=f"{label} vs Random")
+    plt.axhline(0.6, color="k", ls="--", alpha=0.6, label="máximo explotando (+0.6)")
+    plt.xlabel("rondas"); plt.ylabel("recompensa promedio acumulada del que aprende")
+    plt.title("Explotar a un RandomAgent sesgado [0.8, 0.2] en MP"); plt.legend(); plt.tight_layout()
+    path = os.path.join(FIG, "F_explotacion_random.png")
+    plt.savefig(path, dpi=120); plt.close()
+    print("guardado:", path)
+
+
+# ============ G. Tiempos de ejecución ============
+def exp_timing_agents(rounds=5000):
+    # cuanto tarda cada algoritmo en correr la misma cantidad de rondas (en RPS, self-play)
+    builders = {"Random": _random, "FP": _fp, "RM": _rm,
+                "IQL": lambda g: _iql(g, max_t=rounds), "JAL-AM": lambda g: _jalam(g, max_t=rounds)}
+    times = {}
+    for label, build in builders.items():
+        g = RPS(); agents = build(g)
+        t0 = time.perf_counter(); runner.run(g, agents, rounds); times[label] = time.perf_counter() - t0
+    plt.figure(figsize=(7, 4))
+    plt.bar(list(times.keys()), list(times.values()))
+    plt.ylabel(f"segundos ({rounds} rondas en RPS)"); plt.title("Tiempo de ejecución por algoritmo")
+    plt.tight_layout()
+    path = os.path.join(FIG, "G_tiempos_agentes.png"); plt.savefig(path, dpi=120); plt.close()
+    print("guardado:", path, "|", {k: round(v, 3) for k, v in times.items()})
+
+
+def exp_timing_envs(n=2000):
+    # cuanto tarda correr la misma cantidad de rondas/episodios con RandomAgent en cada ambiente
+    envs = {"MP": MP, "RPS": RPS, "Blotto": lambda: Blotto(S=6, N=3), "BoS": BoS, "Chicken": Chicken,
+            "Cournot": Cournot, "ThreePlayers": lambda: ThreePlayers(config=1),
+            "Foraging-5x5": lambda: Foraging(config="Foraging-5x5-2p-1f-v3", seed=1)}
+    times = {}
+    for name, make in envs.items():
+        g = make(); agents = _random(g)
+        t0 = time.perf_counter(); runner.run(g, agents, n); times[name] = time.perf_counter() - t0
+    plt.figure(figsize=(8, 4))
+    plt.bar(list(times.keys()), list(times.values()))
+    plt.ylabel(f"segundos ({n} rondas/episodios)"); plt.title("Tiempo de ejecución por ambiente (con RandomAgent)")
+    plt.xticks(rotation=30, ha="right"); plt.tight_layout()
+    path = os.path.join(FIG, "G_tiempos_ambientes.png"); plt.savefig(path, dpi=120); plt.close()
+    print("guardado:", path, "|", {k: round(v, 3) for k, v in times.items()})
+
+
+# ============ H. Frontera de cooperación (hasta qué tamaño aprenden) ============
+def exp_foraging_frontier(algos=("IQL", "JAL-AM"), players=(2, 3), sizes=(5, 6, 7, 8),
+                          max_iters=1000, eps=30, max_t=600000, results=os.path.join(FIG, "frontier.json")):
+    # entrena cada caso (con early-stopping si ya aprendio) y guarda el reward greedy. Reanudable.
+    data = json.load(open(results)) if os.path.exists(results) else {}
+    build = {"IQL": _iql, "JAL-AM": _jalam}
+    for algo in algos:
+        for p in players:
+            for sz in sizes:
+                key = f"{algo}-{p}p-{sz}x{sz}"
+                if key in data:
+                    continue
+                cfg = f"Foraging-{sz}x{sz}-{p}p-1f-coop-v3"
+                g = Foraging(config=cfg, seed=1); agents = build[algo](g, max_t)
+                best = 0.0; done = 0
+                while done < max_iters:
+                    runner.train(g, agents, 100, eps); done += 100
+                    ev = float(runner.run(g, agents, 100, learn=False).sum(axis=1).mean())
+                    best = max(best, ev)
+                    if best >= 0.95:
+                        break
+                data[key] = best; json.dump(data, open(results, "w"))
+                print(f"{key}: greedy={best:.3f} (~{done * eps} ep)", flush=True)
+    return data
+
+
+def exp_frontier_plot(results=os.path.join(FIG, "frontier.json")):
+    data = json.load(open(results))
+    sizes = ["5x5", "6x6", "7x7", "8x8"]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
+    for ax, p in zip(axes, ["2p", "3p"]):
+        x = np.arange(len(sizes)); w = 0.38
+        for k, algo in enumerate(["IQL", "JAL-AM"]):
+            vals = [data.get(f"{algo}-{p}-{s}", 0.0) for s in sizes]
+            ax.bar(x + (k - 0.5) * w, vals, w, label=algo)
+        ax.set_xticks(x); ax.set_xticklabels(sizes); ax.set_title(f"{p} jugadores")
+        ax.set_xlabel("tamaño del tablero"); ax.legend()
+    axes[0].set_ylabel("reward greedy final")
+    fig.suptitle("Frontera de cooperación: hasta qué tamaño aprenden a cooperar")
+    fig.tight_layout()
+    path = os.path.join(FIG, "G_frontera_cooperacion.png"); fig.savefig(path, dpi=120); plt.close(fig)
+    print("guardado:", path)
+
+
 if __name__ == "__main__":
     # experimentos rápidos (normal-form)
     exp_convergence_zero_sum()
+    exp_blotto()
+    exp_exploit_random()
     exp_coordination_bos()
     exp_cournot()
     exp_threeplayers()
