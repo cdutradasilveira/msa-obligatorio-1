@@ -439,7 +439,7 @@ def exp_frontier_plot(results=os.path.join(FIG, "frontier.json")):
 
 
 if __name__ == "__main__":
-    # experimentos rápidos (normal-form)
+    # rapidos (juegos de una jugada)
     exp_convergence_zero_sum()
     exp_blotto()
     exp_exploit_random()
@@ -449,3 +449,12 @@ if __name__ == "__main__":
     exp_rps_simplex()
     exp_rm_rps_simplex()
     exp_rm_regrets()
+    # tiempos
+    exp_timing_agents()
+    exp_timing_envs()
+    # foraging y frontera (tardan bastante mas)
+    exp_foraging_competition()
+    exp_foraging_coop()
+    exp_foraging_multirun()
+    exp_foraging_frontier()
+    exp_frontier_plot()
