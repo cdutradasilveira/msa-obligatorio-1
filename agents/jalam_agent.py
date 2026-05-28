@@ -84,7 +84,9 @@ class JALAMAgent(Agent):
         if self.learn and self.rng.random() < self.epsilon:
             a = int(self.rng.integers(self.n_actions))
         else:
-            a = int(np.argmax(self._expected_values(key)))
+            ev = self._expected_values(key)
+            best = np.flatnonzero(ev == ev.max())         # desempata al azar (asi no se queda siempre en NONE)
+            a = int(self.rng.choice(best))
         self.last_state = key
         self.last_action = a
         return a

@@ -66,7 +66,8 @@ class IQLAgent(Agent):
         if self.learn and self.rng.random() < self.epsilon:
             a = int(self.rng.integers(self.n_actions))   # explora
         else:
-            a = int(np.argmax(q))                         # explota
+            best = np.flatnonzero(q == q.max())          # explota
+            a = int(self.rng.choice(best))               # desempata al azar (asi no se queda siempre en NONE)
         self.last_state = key
         self.last_action = a
         return a
