@@ -46,7 +46,12 @@ def _simplex_point(policy, agent_idx):
 def _draw_simplex(ax, title):
     ax.plot([0, 1], [1, 0], "k--", lw=0.8, alpha=0.6)  # diagonal que separa los dos simplex
     ax.set_xlim(-0.03, 1.03); ax.set_ylim(-0.03, 1.03); ax.set_aspect("equal")
-    ax.set_xlabel(r"$\pi$(Piedra)"); ax.set_ylabel(r"$\pi$(Papel)"); ax.set_title(title)
+    ax.set_xlabel(r"$\pi$(Piedra) - Agente 1"); ax.set_ylabel(r"$\pi$(Papel) - Agente 1")
+    ax.set_title(title)
+    # escala del Agente 2: invertida, arriba y a la derecha
+    inv = (lambda v: 1 - v, lambda v: 1 - v)
+    sx = ax.secondary_xaxis("top", functions=inv); sx.set_xlabel(r"$\pi$(Piedra) - Agente 2")
+    sy = ax.secondary_yaxis("right", functions=inv); sy.set_ylabel(r"$\pi$(Papel) - Agente 2")
 
 
 # --- builders de agentes (paramétricos en N) ---
@@ -146,34 +151,36 @@ def exp_threeplayers(total=5000):
 
 
 # ============ D. Foraging (con estado) ============
-def exp_foraging_competition(iters=40, eps=100):
-    for cfg, mt in [("Foraging-5x5-2p-1f-v3", 20000), ("Foraging-8x8-2p-1f-v3", 50000)]:
+def exp_foraging_competition(iters=40, eps=100, cfg="Foraging-5x5-2p-1f-v3", mt=20000):
+    # una figura por algoritmo (cada una muestra a sus dos agentes compitiendo)
+    for label, build in {"IQL": lambda g: _iql(g, mt), "JAL-AM": lambda g: _jalam(g, mt)}.items():
+        g = Foraging(config=cfg, seed=1); agents = build(g)
+        curve = runner.train(g, agents, iters, eps)
         plt.figure(figsize=(7, 4))
-        for label, build in {"IQL": lambda g: _iql(g, mt), "JAL-AM": lambda g: _jalam(g, mt)}.items():
-            g = Foraging(config=cfg, seed=1); agents = build(g)
-            curve = runner.train(g, agents, iters, eps)
-            for j, a in enumerate(g.agents):
-                plt.plot(curve[:, j], label=f"{label} {a}")
+        for j, a in enumerate(g.agents):
+            plt.plot(curve[:, j], label=a)
         plt.xlabel("iteración"); plt.ylabel("reward promedio por episodio")
-        plt.title(f"Foraging competitivo - {cfg}"); plt.legend(); plt.tight_layout()
-        path = os.path.join(FIG, f"D_competencia_{cfg}.png")
+        plt.title(f"Foraging competitivo ({label}) - {cfg.split('-')[1]}")
+        plt.legend(); plt.tight_layout()
+        path = os.path.join(FIG, f"D_competencia_{label.replace('-', '')}.png")
         plt.savefig(path, dpi=120); plt.close()
         print("guardado:", path)
 
 
-def exp_foraging_coop(iters=160, eps=50, mt=100000):
-    cfg = "Foraging-5x5-2p-1f-coop-v3"
-    plt.figure(figsize=(7, 4))
+def exp_foraging_coop(iters=160, eps=50, mt=100000, cfg="Foraging-5x5-2p-1f-coop-v3"):
+    # una figura por algoritmo (cada una muestra a sus dos agentes cooperando)
     for label, build in {"IQL": lambda g: _iql(g, mt), "JAL-AM": lambda g: _jalam(g, mt)}.items():
         g = Foraging(config=cfg, seed=1); agents = build(g)
         curve = runner.train(g, agents, iters, eps)
+        plt.figure(figsize=(7, 4))
         for j, a in enumerate(g.agents):
-            plt.plot(curve[:, j], label=f"{label} {a}")
-    plt.xlabel("iteración"); plt.ylabel("reward promedio por episodio")
-    plt.title(f"Foraging cooperativo - {cfg} (suben juntos)"); plt.legend(); plt.tight_layout()
-    path = os.path.join(FIG, "D_cooperacion_5x5.png")
-    plt.savefig(path, dpi=120); plt.close()
-    print("guardado:", path)
+            plt.plot(curve[:, j], label=a)
+        plt.xlabel("iteración"); plt.ylabel("reward promedio por episodio")
+        plt.title(f"Foraging cooperativo ({label}) - {cfg.split('-')[1]} (suben juntos)")
+        plt.legend(); plt.tight_layout()
+        path = os.path.join(FIG, f"D_cooperacion_{label.replace('-', '')}.png")
+        plt.savefig(path, dpi=120); plt.close()
+        print("guardado:", path)
 
 
 def exp_foraging_wall(iters=120, eps=50):
@@ -230,22 +237,23 @@ def exp_rm_rps_simplex(total=10000, snap=10):
                 cur[a].append(agents[a].curr_policy.copy())
                 emp[a].append(agents[a].policy().copy())
     runner.run(g, agents, total, callback=cb)
-    fig, (axa, axb) = plt.subplots(1, 2, figsize=(11, 5.5))
-    _draw_simplex(axa, "(a) política actual")
-    _draw_simplex(axb, "(b) distribución empírica")
-    for idx, (a, col) in enumerate(zip(g.agents, ("tab:blue", "tab:orange"))):
-        pa = np.array([_simplex_point(p, idx) for p in cur[a]])
-        pb = np.array([_simplex_point(p, idx) for p in emp[a]])
-        axa.plot(pa[:, 0], pa[:, 1], "-", color=col, alpha=0.35, lw=0.6)
-        axb.plot(pb[:, 0], pb[:, 1], "-", color=col, alpha=0.7, lw=1, label=f"Agente {idx + 1}")
-        nx, ny = _simplex_point(np.array([1 / 3, 1 / 3, 1 / 3]), idx)
-        for ax in (axa, axb):
+    for data, title, alpha, lw, fname in [
+        (cur, "RM en RPS — (a) política actual", 0.35, 0.6, "E_simplex_RM_RPS_actual"),
+        (emp, "RM en RPS — (b) distribución empírica", 0.7, 1.0, "E_simplex_RM_RPS_empirica"),
+    ]:
+        fig, ax = plt.subplots(figsize=(7, 7))
+        _draw_simplex(ax, title)
+        for idx, (a, col) in enumerate(zip(g.agents, ("tab:blue", "tab:orange"))):
+            pts = np.array([_simplex_point(p, idx) for p in data[a]])
+            ax.plot(pts[:, 0], pts[:, 1], "-", color=col, alpha=alpha, lw=lw, label=f"Agente {idx + 1}")
+            nx, ny = _simplex_point(np.array([1 / 3, 1 / 3, 1 / 3]), idx)
             ax.scatter([nx], [ny], marker="*", s=160, color="black", zorder=5)
-    axb.legend(loc="upper center")
-    fig.suptitle("RM en RPS (réplica Fig 6.14)")
-    path = os.path.join(FIG, "E_simplex_RM_RPS.png")
-    fig.savefig(path, bbox_inches="tight"); plt.close(fig)
-    print("guardado:", path)
+        leg = ax.legend(loc="upper center", framealpha=1.0, edgecolor="black")
+        for ln in leg.get_lines():
+            ln.set_linewidth(2.5); ln.set_alpha(1.0)
+        path = os.path.join(FIG, f"{fname}.png")
+        fig.savefig(path, bbox_inches="tight"); plt.close(fig)
+        print("guardado:", path)
 
 
 def exp_rm_regrets(total=10000, snap=10):
